@@ -423,6 +423,7 @@ func getBlkCCWDevPath(s *sandbox, bus string) (string, error) {
 }
 
 func addDevices(ctx context.Context, devices []*pb.Device, spec *pb.Spec, s *sandbox) error {
+	addAccelDevice(spec)
 	devIdx := makeDevIndex(spec)
 
 	for _, device := range devices {
@@ -510,6 +511,48 @@ func addDevice(ctx context.Context, device *pb.Device, spec *pb.Spec, s *sandbox
 	return devHandler(ctx, *device, spec, s, devIdx)
 }
 
+func addAccelDevice(spec *pb.Spec) {
+	stat := syscall.Stat_t{}
+
+	agentLog.WithFields(logrus.Fields{
+                "device-path":  "/dev/accel",
+	}).Debug("calling stat for Guest path: /dev/accel")
+
+	if err := syscall.Stat("/dev/accel", &stat); err != nil {
+		return err
+	}
+
+	devStat := stat.Rdev
+
+	devMajor := int64(unix.Major(devStat))
+        devMinor := int64(unix.Minor(devStat))
+
+	agentLog.WithFields(logrus.Fields{
+		"device-major": devMajor,
+		"device-minor": devMinor,
+	}).Debug("found major/minor for /dev/accel")
+
+	accelDev := pb.LinuxDevice{
+		Path: "/dev/accel",
+		Type: "c",
+		Major: devMajor,
+		Minor: devMinor,
+		FileMode: 0666,
+		UID: 0,
+		GID: 0,
+	}
+	spec.Linux.Devices = append(spec.Linux.Devices, accelDev)
+
+	accelResourcesDev := pb.LinuxDeviceCgroup{
+                Allow:  true,
+                Major:  devMajor,
+                Minor:  devMinor,
+                Type:   "c",
+                Access: "rwm",
+        }
+
+        spec.Linux.Resources.Devices = append(spec.Linux.Resources.Devices, accelResourcesDev)
+}
 // updateDeviceCgroupForGuestRootfs updates the device cgroup for container
 // to not allow access to the nvdim root partition. This prevents the container
 // from being able to access the VM rootfs.
